@@ -1,0 +1,7 @@
+---
+:student1:
+  :aws_access_key_id: STUDENT1KEY
+  :aws_secret_access_key: STUDENT1SECRET
+:student2:
+  :aws_access_key_id: STUDENT2KEY
+  :aws_secret_access_key: STUDENT2SECRET
