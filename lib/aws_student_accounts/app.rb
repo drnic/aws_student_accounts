@@ -51,6 +51,9 @@ class AwsStudentAccounts::App < Thor
           end
           say "Deleted access keys", :yellow
 
+          iam.delete_login_profile(username)
+          say "Deleted user login profile", :yellow
+
           user_policies_reponse = iam.list_user_policies(username)
           user_policies_reponse.body['PolicyNames'].each do |policy_name|
             iam.delete_user_policy(username, policy_name)
@@ -70,13 +73,30 @@ class AwsStudentAccounts::App < Thor
         say "Created access key #{access_key_id} #{secret_access_key}", :green
 
         say "TODO: generated and download SSH public key", :yellow
-        say "TODO: create password", :yellow
+
+        password = generate_password
+        iam.create_login_profile(username, password)
+        say "Created login password #{password}"
+        say "TODO: determine IAM users sign-in link, e.g. https://093368509744.signin.aws.amazon.com/console", :yellow
 
         arn = user_response.body['User']['Arn']
         iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
         iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
         say "Created user policies", :green
 
+        user_credentials = {
+          aws_access_key_id: access_key_id,
+          aws_secret_access_key: secret_access_key
+        }
+        say "Verify credentials: "
+        begin
+          user_compute = Fog::Compute::AWS.new(user_credentials)
+          server_count = user_compute.servers.size
+          say "OK ", :green
+          say "(#{server_count} vms)"
+        rescue => e
+          say e.message, :red
+        end
 
         say "OK", :green
       rescue => e
@@ -137,5 +157,9 @@ class AwsStudentAccounts::App < Thor
         },
       ]
     }
+  end
+
+  def generate_password
+    "starkandwayne"
   end
 end
