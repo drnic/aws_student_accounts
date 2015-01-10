@@ -91,6 +91,13 @@ class AwsStudentAccounts::App < Thor
   common_options
   def delete_students
     load_and_verify_options
+    fog_credentials.each do |key, credentials|
+      begin
+        iam = Fog::AWS::IAM.new(credentials)
+        username = key
+        delete_user(iam, username)
+      end
+    end
   end
 
   desc "clean-accounts", "Clean out all VMs, disk, elastic IPs, AMIs, VPCs from student accounts"
