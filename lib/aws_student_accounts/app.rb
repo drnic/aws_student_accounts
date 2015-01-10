@@ -35,7 +35,6 @@ class AwsStudentAccounts::App < Thor
   def create_students
     load_and_verify_options
     fog_credentials.each do |key, credentials|
-      say "#{key}:"
       begin
         iam = Fog::AWS::IAM.new(credentials)
         username = key
@@ -43,52 +42,35 @@ class AwsStudentAccounts::App < Thor
         begin
           user_response = iam.create_user(username)
         rescue Fog::AWS::IAM::EntityAlreadyExists
-          say "User #{username} exists, deleting..."
+          user_say username, "User exists, deleting..."
 
-          access_keys_reponse = iam.list_access_keys('UserName' => username)
-          access_keys_reponse.body['AccessKeys'].each do |key|
-            user_response = iam.delete_access_key(key['AccessKeyId'], 'UserName' => username)
-          end
-          say "Deleted access keys", :yellow
-
-          iam.delete_login_profile(username)
-          say "Deleted user login profile", :yellow
-
-          user_policies_reponse = iam.list_user_policies(username)
-          user_policies_reponse.body['PolicyNames'].each do |policy_name|
-            iam.delete_user_policy(username, policy_name)
-          end
-          say "Deleted user policies", :yellow
-
-          user_response = iam.delete_user(username)
-          say "Deleted user", :yellow
-
+          delete_user(iam, username)
           user_response = iam.create_user(username)
         end
-        say "Created user #{username}", :green
+        user_say username, "Created user #{username}", :green
         key_response  = iam.create_access_key('UserName' => username)
         access_key_id     = key_response.body['AccessKey']['AccessKeyId']
         secret_access_key = key_response.body['AccessKey']['SecretAccessKey']
 
-        say "Created access key #{access_key_id} #{secret_access_key}", :green
+        user_say username, "Created access key #{access_key_id} #{secret_access_key}", :green
 
-        say "TODO: generated and download SSH public key", :yellow
+        user_say username, "TODO: generated and download SSH public key", :yellow
 
         password = generate_password
         iam.create_login_profile(username, password)
-        say "Created login password #{password}"
-        say "TODO: determine IAM users sign-in link, e.g. https://093368509744.signin.aws.amazon.com/console", :yellow
+        user_say username, "Created login password #{password}"
+        user_say username, "TODO: determine IAM users sign-in link, e.g. https://093368509744.signin.aws.amazon.com/console", :yellow
 
         arn = user_response.body['User']['Arn']
         iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
         iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
-        say "Created user policies", :green
+        user_say username, "Created user policies", :green
 
         user_credentials = {
           aws_access_key_id: access_key_id,
           aws_secret_access_key: secret_access_key
         }
-        say "Verify credentials: "
+        user_say username, "Verify credentials: "
         begin
           user_compute = Fog::Compute::AWS.new(user_credentials)
           server_count = user_compute.servers.size
@@ -161,5 +143,33 @@ class AwsStudentAccounts::App < Thor
 
   def generate_password
     "starkandwayne"
+  end
+
+  def user_say(username, *args)
+    say "[#{username}] "
+    say *args
+  end
+
+  def delete_user(iam, username)
+    access_keys_reponse = iam.list_access_keys('UserName' => username)
+    access_keys_reponse.body['AccessKeys'].each do |key|
+      user_response = iam.delete_access_key(key['AccessKeyId'], 'UserName' => username)
+    end
+    user_say username, "Deleted access keys", :yellow
+
+    begin
+      iam.delete_login_profile(username)
+      user_say username, "Deleted user login profile", :yellow
+    rescue Fog::AWS::IAM::NotFound
+    end
+
+    user_policies_reponse = iam.list_user_policies(username)
+    user_policies_reponse.body['PolicyNames'].each do |policy_name|
+      iam.delete_user_policy(username, policy_name)
+    end
+    user_say username, "Deleted user policies", :yellow
+
+    user_response = iam.delete_user(username)
+    user_say username, "Deleted user", :yellow
   end
 end
