@@ -5,6 +5,8 @@ require "fog"
 class AwsStudentAccounts::App < Thor
   include Thor::Actions
 
+  attr_reader :fog_credentials
+
   def self.common_options
     method_option :fog_file, desc: "Path to YAML file of fog credentials",
                     type: :string, aliases: "-C", required: true
@@ -14,7 +16,7 @@ class AwsStudentAccounts::App < Thor
   common_options
   def verify_credentials
     load_and_verify_options
-    @fog_credentials.each do |key, credentials|
+    fog_credentials.each do |key, credentials|
       say "#{key}: "
       begin
         compute = Fog::Compute::AWS.new(credentials)
@@ -32,6 +34,55 @@ class AwsStudentAccounts::App < Thor
   common_options
   def create_students
     load_and_verify_options
+    fog_credentials.each do |key, credentials|
+      say "#{key}:"
+      begin
+        iam = Fog::AWS::IAM.new(credentials)
+        username = key
+
+        begin
+          user_response = iam.create_user(username)
+        rescue Fog::AWS::IAM::EntityAlreadyExists
+          say "User #{username} exists, deleting..."
+
+          access_keys_reponse = iam.list_access_keys('UserName' => username)
+          access_keys_reponse.body['AccessKeys'].each do |key|
+            user_response = iam.delete_access_key(key['AccessKeyId'], 'UserName' => username)
+          end
+          say "Deleted access keys", :yellow
+
+          user_policies_reponse = iam.list_user_policies(username)
+          user_policies_reponse.body['PolicyNames'].each do |policy_name|
+            iam.delete_user_policy(username, policy_name)
+          end
+          say "Deleted user policies", :yellow
+
+          user_response = iam.delete_user(username)
+          say "Deleted user", :yellow
+
+          user_response = iam.create_user(username)
+        end
+        say "Created user #{username}", :green
+        key_response  = iam.create_access_key('UserName' => username)
+        access_key_id     = key_response.body['AccessKey']['AccessKeyId']
+        secret_access_key = key_response.body['AccessKey']['SecretAccessKey']
+
+        say "Created access key #{access_key_id} #{secret_access_key}", :green
+
+        say "TODO: generated and download SSH public key", :yellow
+        say "TODO: create password", :yellow
+
+        arn = user_response.body['User']['Arn']
+        iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
+        iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
+        say "Created user policies", :green
+
+
+        say "OK", :green
+      rescue => e
+        say "#{e.class}: #{e.message}", :red
+      end
+    end
   end
 
   desc "delete-students", "Delete temporary student IAM accounts"
@@ -62,4 +113,29 @@ class AwsStudentAccounts::App < Thor
     # TODO: filter @fog_credentials by filter/ignore list
   end
 
+  # generated via http://awspolicygen.s3.amazonaws.com/policygen.html
+  # Effect	Action   Resource	         Conditions
+  # Allow	  ec2:*	   arn:aws:ec2:*:*:*	 None
+  # Allow	  s3:*	   arn:aws:s3:::*	     None
+  def iam_key_policy(arn)
+    {
+      'Statement' => [
+        'Effect' => 'Allow',
+        'Action' => 'iam:*AccessKey*',
+        'Resource' => arn
+      ]
+    }
+  end
+
+  def iam_student_policy
+    {
+      "Statement" => [
+        {
+          "Effect" => "Allow",
+          "Action" => "*",
+          "Resource" => "*"
+        },
+      ]
+    }
+  end
 end
