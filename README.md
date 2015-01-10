@@ -27,7 +27,44 @@ $ gem install aws_student_accounts
 Usage
 -----
 
-TODO: Write usage instructions here
+### Verify list of API credentials are valid
+
+```
+aws_student_accounts verify-credentials -C path/to/fog.yml
+```
+
+### Create a student IAM account for all AWS accounts in a list
+
+```
+aws_student_accounts create-students -C path/to/fog.yml path/to/students
+```
+
+`path/to/students` will be a folder into which the following files are created:
+
+-	`students-fog-api.yml` - the AWS credentials for all students' to access their allocated AWS accounts
+-	`students-console-passwords.md` - the AWS console username/passwords for students' to access their allocated AWS accounts
+
+### Delete student IAM access
+
+```
+aws_student_accounts delete-students -C path/to/fog.yml
+```
+
+### Cleans accounts
+
+```
+aws_student_accounts clean-accounts -C path/to/fog.yml
+```
+
+### Options
+
+All commands will perform the account upon all accounts listed in the `-C fog.yml` file provided.
+
+You can filter to 1+ accounts with a comma separated list `-a student1,student2`.
+
+You can ignore 1+ accounts from the `-C` list with `-i student19,student20`.
+
+Experiment with these options using the read-only `aws_student_accounts verify-credentials` command.
 
 Contributing
 ------------
