@@ -39,84 +39,24 @@ class AwsStudentAccounts::App < Thor
 
     signin_urls = YAML.load_file(options[:signin_urls])
 
-    users_credentials = {}
-    users_passwords = {}
+    @users_credentials = {}
+    @users_passwords = {}
 
     FileUtils.mkdir_p(path_to_student_folders)
     FileUtils.chdir(path_to_student_folders) do
       fog_credentials.each do |username, credentials|
-        unless account_signin_url = signin_urls[username]
-          user_say username, "Username #{username} missing from #{options[:signin_urls]}, skipping", :red
-          next
-        end
-
-        begin
-          iam = Fog::AWS::IAM.new(credentials)
-
-          begin
-            user_response = iam.create_user(username)
-          rescue Fog::AWS::IAM::EntityAlreadyExists
-            user_say username, "User exists, deleting..."
-
-            delete_user(iam, username)
-            user_response = iam.create_user(username)
-          end
-          user_say username, "Created user #{username}", :green
-          key_response  = iam.create_access_key('UserName' => username)
-          access_key_id     = key_response.body['AccessKey']['AccessKeyId']
-          secret_access_key = key_response.body['AccessKey']['SecretAccessKey']
-
-          user_say username, "Created API access key", :green
-
-          user_say username, "TODO: generated and download SSH public key", :yellow
-
-          password = generate_password
-          iam.create_login_profile(username, password)
-          user_say username, "Created login password #{password}"
-
-          arn = user_response.body['User']['Arn']
-          iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
-          iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
-          user_say username, "Created user policies", :green
-
-          user_credentials = {
-            aws_access_key_id: access_key_id,
-            aws_secret_access_key: secret_access_key
-          }
-          user_say username, "Verify credentials: "
-          begin
-            user_compute = Fog::Compute::AWS.new(user_credentials)
-            server_count = user_compute.servers.size
-            say "OK ", :green
-            say "(#{server_count} vms)"
-          rescue => e
-            say e.message, :red
-          end
-
-          users_credentials[username.to_sym] = user_credentials
-          user_login = {
-            password: password,
-            username: username.to_s,
-            url: account_signin_url
-          }
-          users_passwords[username] = user_login
-
-          write_fog_file(username, user_credentials)
-          write_password_file(account_signin_url, user_login)
-        rescue => e
-          say "#{e.class}: #{e.message}", :red
-        end
+        create_student_user(username, credentials, signin_urls)
       end
 
       File.open("students-fog-api.yml", "w") do |f|
-        f << users_credentials.to_yaml
+        f << @users_credentials.to_yaml
       end
       say "Stored all user API credentials: #{File.expand_path('students-fog-api.yml')}"
 
       File.open("students-console-passwords.md", "w") do |f|
         f << "# Student AWS logins\n\n"
         fog_credentials.each do |username, credentials|
-          if user_login = users_passwords[username]
+          if user_login = @users_passwords[username]
             f << <<-EOS
 ## #{user_login[:username]}
 
@@ -200,6 +140,74 @@ class AwsStudentAccounts::App < Thor
   def user_say(username, *args)
     say "[#{username}] "
     say *args
+  end
+
+  def create_student_user(account, admin_credentials, signin_urls)
+    unless account_signin_url = signin_urls[account]
+      user_say account, "Admin account #{account} missing from #{options[:signin_urls]}, skipping", :red
+      return
+    end
+
+    begin
+      iam = Fog::AWS::IAM.new(admin_credentials)
+
+      # create user with same name as we externally refer to the account; e.g. student15
+      username = account
+
+      begin
+        user_response = iam.create_user(username)
+      rescue Fog::AWS::IAM::EntityAlreadyExists
+        user_say username, "User exists, deleting..."
+
+        delete_user(iam, username)
+        user_response = iam.create_user(username)
+      end
+      user_say username, "Created user #{username}", :green
+      key_response  = iam.create_access_key('UserName' => username)
+      access_key_id     = key_response.body['AccessKey']['AccessKeyId']
+      secret_access_key = key_response.body['AccessKey']['SecretAccessKey']
+
+      user_say username, "Created API access key", :green
+
+      user_say username, "TODO: generated and download SSH public key", :yellow
+
+      password = generate_password
+      iam.create_login_profile(username, password)
+      user_say username, "Created login password"
+
+      arn = user_response.body['User']['Arn']
+      iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
+      iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
+      user_say username, "Created user policies", :green
+
+      user_credentials = {
+        aws_access_key_id: access_key_id,
+        aws_secret_access_key: secret_access_key
+      }
+      user_say username, "Verify credentials: "
+      begin
+        user_compute = Fog::Compute::AWS.new(user_credentials)
+        server_count = user_compute.servers.size
+        say "OK ", :green
+        say "(#{server_count} vms)"
+      rescue => e
+        say e.message, :red
+      end
+
+      @users_credentials[username.to_sym] = user_credentials
+      user_login = {
+        password: password,
+        username: username.to_s,
+        url: account_signin_url
+      }
+      @users_passwords[username] = user_login
+
+      write_fog_file(username, user_credentials)
+      write_password_file(account_signin_url, user_login)
+    rescue => e
+      say "#{e.class}: #{e.message}", :red
+    end
+
   end
 
   def delete_user(iam, username)
