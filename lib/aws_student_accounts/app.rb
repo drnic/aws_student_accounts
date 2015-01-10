@@ -5,7 +5,8 @@ class AwsStudentAccounts::App < Thor
   include Thor::Actions
 
   def self.common_options
-    method_option :fog_file, type: :string, aliases: "-C", desc: "Path to YAML file of fog credentials"
+    method_option :fog_file, desc: "Path to YAML file of fog credentials",
+                    type: :string, aliases: "-C", required: true
   end
 
   desc "verify-credentials", "Verify AWS credentials"
