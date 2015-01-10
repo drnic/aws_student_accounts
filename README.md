@@ -38,10 +38,22 @@ aws_student_accounts verify-credentials -C path/to/fog.yml
 Create a student IAM account for all AWS accounts
 
 ```
-aws_student_accounts create-students -C path/to/fog.yml path/to/students
+aws_student_accounts create-students \
+  -C path/to/fog.yml \
+  --signin-urls path/to/signin-urls.yml \
+  [path/to/students]
 ```
 
-`path/to/students` will be a folder into which the following files are created:
+For each account key in `path/to/fog.yml` there must be a mapping to the signin URL for that account in `path/to/signin-urls.yml`.
+
+E.g.
+
+```yaml
+:student1: https://093368509744.signin.aws.amazon.com/console
+:student2: https://012345678901.signin.aws.amazon.com/console
+```
+
+`path/to/students` will be a folder (defaults to `students` in current folder) into which the following files are created:
 
 -	`students-fog-api.yml` - the AWS credentials for all students' to access their allocated AWS accounts
 -	`students-console-passwords.md` - the AWS console username/passwords for students' to access their allocated AWS accounts

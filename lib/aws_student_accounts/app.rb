@@ -32,8 +32,12 @@ class AwsStudentAccounts::App < Thor
 
   desc "create-students", "Create a student IAM account for all AWS accounts"
   common_options
+  method_option :signin_urls, desc: "File mapping usernames to account signin URLs",
+    type: :string, aliases: "-s", required: true
   def create_students(path_to_student_folders="students")
     load_and_verify_options
+
+    signin_urls = YAML.load_file(options[:signin_urls])
 
     users_credentials = {}
     users_passwords = {}
@@ -41,6 +45,11 @@ class AwsStudentAccounts::App < Thor
     FileUtils.mkdir_p(path_to_student_folders)
     FileUtils.chdir(path_to_student_folders) do
       fog_credentials.each do |username, credentials|
+        unless account_signin_url = signin_urls[username]
+          user_say username, "Username #{username} missing from #{options[:signin_urls]}, skipping", :red
+          next
+        end
+
         begin
           iam = Fog::AWS::IAM.new(credentials)
 
@@ -64,8 +73,6 @@ class AwsStudentAccounts::App < Thor
           password = generate_password
           iam.create_login_profile(username, password)
           user_say username, "Created login password #{password}"
-          user_say username, "TODO: determine IAM users sign-in link, e.g. https://093368509744.signin.aws.amazon.com/console", :yellow
-          account_signin_url = "some-url"
 
           arn = user_response.body['User']['Arn']
           iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
@@ -87,14 +94,15 @@ class AwsStudentAccounts::App < Thor
           end
 
           users_credentials[username.to_sym] = user_credentials
-          users_passwords[username.to_sym] = {
+          user_login = {
             password: password,
             username: username.to_s,
             url: account_signin_url
           }
+          users_passwords[username] = user_login
 
           write_fog_file(username, user_credentials)
-          write_password_file(account_signin_url, username, password)
+          write_password_file(account_signin_url, user_login)
         rescue => e
           say "#{e.class}: #{e.message}", :red
         end
@@ -108,15 +116,16 @@ class AwsStudentAccounts::App < Thor
       File.open("students-console-passwords.md", "w") do |f|
         f << "# Student AWS logins\n\n"
         fog_credentials.each do |username, credentials|
-          password = users_passwords[username.to_sym]
-          f << <<-EOS
-## #{password[:username]}
+          if user_login = users_passwords[username]
+            f << <<-EOS
+## #{user_login[:username]}
 
-* Sign-in URL: #{password[:url]}
-* Username: #{password[:username]}
-* Password: #{password[:password]}
+* Sign-in URL: #{user_login[:url]}
+* Username: #{user_login[:username]}
+* Password: #{user_login[:password]}
 
-          EOS
+            EOS
+          end
         end
         say "Stored all user passwords: #{File.expand_path('students-console-passwords.md')}"
       end
@@ -226,15 +235,16 @@ class AwsStudentAccounts::App < Thor
     user_say username, "Created fog-api.yml", :green
   end
 
-  def write_password_file(account_signin_url, username, password)
-    FileUtils.mkdir_p(username.to_s)
-    File.open(File.join(username.to_s, "console-passwords.md"), "w") do |f|
+  def write_password_file(account_signin_url, user_login)
+    username = user_login[:username]
+    FileUtils.mkdir_p(username)
+    File.open(File.join(username, "console-passwords.md"), "w") do |f|
       f << <<-EOS
 # #{username}
 
-* Sign-in URL: #{password[:url]}
+* Sign-in URL: #{user_login[:url]}
 * Username: #{username}
-* Password: #{password}
+* Password: #{user_login[:password]}
       EOS
     end
     user_say username, "Created fog-api.yml", :green
