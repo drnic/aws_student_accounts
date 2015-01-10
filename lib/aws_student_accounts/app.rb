@@ -1,6 +1,8 @@
 require "thor"
 require "yaml"
 require "fog"
+require "thread_safe"
+require "parallel"
 
 class AwsStudentAccounts::App < Thor
   include Thor::Actions
@@ -16,16 +18,22 @@ class AwsStudentAccounts::App < Thor
   common_options
   def verify_credentials
     load_and_verify_options
-    fog_credentials.each do |key, credentials|
-      say "#{key}: "
+    @io_semaphore = Mutex.new
+    Parallel.each(fog_credentials, in_threads: 10) do |username, credentials|
       begin
         compute = Fog::Compute::AWS.new(credentials)
         server_count = compute.servers.size
         vpc_count = compute.vpcs.size
-        say "OK ", :green
-        say "(#{server_count} vm, #{vpc_count} vpcs)"
+        @io_semaphore.synchronize do
+          say "#{username}: "
+          say "OK ", :green
+          say "(#{server_count} vm, #{vpc_count} vpcs)"
+        end
       rescue => e
-        say e.message, :red
+        @io_semaphore.synchronize do
+          say "#{username}: "
+          say e.message, :red
+        end
       end
     end
   end
@@ -36,15 +44,16 @@ class AwsStudentAccounts::App < Thor
     type: :string, aliases: "-s", required: true
   def create_students(path_to_student_folders="students")
     load_and_verify_options
+    @io_semaphore = Mutex.new
 
     signin_urls = YAML.load_file(options[:signin_urls])
 
-    @users_credentials = {}
-    @users_passwords = {}
+    @users_credentials = ThreadSafe::Hash.new
+    @users_passwords = ThreadSafe::Hash.new
 
     FileUtils.mkdir_p(path_to_student_folders)
     FileUtils.chdir(path_to_student_folders) do
-      fog_credentials.each do |username, credentials|
+      Parallel.each(fog_credentials, in_threads: fog_credentials.size) do |username, credentials|
         create_student_user(username, credentials, signin_urls)
       end
 
@@ -76,11 +85,23 @@ class AwsStudentAccounts::App < Thor
   common_options
   def delete_students
     load_and_verify_options
-    fog_credentials.each do |key, credentials|
+    @io_semaphore = Mutex.new
+
+    Parallel.each(fog_credentials, in_threads: fog_credentials.size) do |username, credentials|
       begin
         iam = Fog::AWS::IAM.new(credentials)
-        username = key
         delete_user(iam, username)
+        @io_semaphore.synchronize do
+          user_say username, "Deleted user", :green
+        end
+      rescue Fog::AWS::IAM::NotFound
+        @io_semaphore.synchronize do
+          user_say username, "Does not exist", :red
+        end
+      rescue => e
+        @io_semaphore.synchronize do
+          user_say username, e.message, :red
+        end
       end
     end
   end
@@ -144,7 +165,9 @@ class AwsStudentAccounts::App < Thor
 
   def create_student_user(account, admin_credentials, signin_urls)
     unless account_signin_url = signin_urls[account]
-      user_say account, "Admin account #{account} missing from #{options[:signin_urls]}, skipping", :red
+      @io_semaphore.synchronize do
+        user_say account, "Admin account #{account} missing from #{options[:signin_urls]}, skipping", :red
+      end
       return
     end
 
@@ -157,41 +180,55 @@ class AwsStudentAccounts::App < Thor
       begin
         user_response = iam.create_user(username)
       rescue Fog::AWS::IAM::EntityAlreadyExists
-        user_say username, "User exists, deleting..."
+        @io_semaphore.synchronize do
+          user_say username, "User exists, deleting..."
+        end
 
         delete_user(iam, username)
         user_response = iam.create_user(username)
       end
-      user_say username, "Created user #{username}", :green
+      @io_semaphore.synchronize do
+        user_say username, "Created user #{username}", :green
+      end
       key_response  = iam.create_access_key('UserName' => username)
       access_key_id     = key_response.body['AccessKey']['AccessKeyId']
       secret_access_key = key_response.body['AccessKey']['SecretAccessKey']
 
-      user_say username, "Created API access key", :green
-
-      user_say username, "TODO: generated and download SSH public key", :yellow
+      @io_semaphore.synchronize do
+        user_say username, "Created API access key", :green
+        user_say username, "TODO: generated and download SSH public key", :yellow
+      end
 
       password = generate_password
       iam.create_login_profile(username, password)
-      user_say username, "Created login password"
+      @io_semaphore.synchronize do
+        user_say username, "Created login password"
+      end
 
       arn = user_response.body['User']['Arn']
       iam.put_user_policy(username, 'UserKeyPolicy', iam_key_policy(arn))
       iam.put_user_policy(username, 'UserAllPolicy', iam_student_policy)
-      user_say username, "Created user policies", :green
+      @io_semaphore.synchronize do
+        user_say username, "Created user policies", :green
+      end
 
       user_credentials = {
         aws_access_key_id: access_key_id,
         aws_secret_access_key: secret_access_key
       }
-      user_say username, "Verify credentials: "
       begin
         user_compute = Fog::Compute::AWS.new(user_credentials)
         server_count = user_compute.servers.size
-        say "OK ", :green
-        say "(#{server_count} vms)"
+        @io_semaphore.synchronize do
+          user_say username, "Verify credentials: "
+          say "OK ", :green
+          say "(#{server_count} vms)"
+        end
       rescue => e
-        say e.message, :red
+        @io_semaphore.synchronize do
+          user_say username, "Verify credentials: "
+          say e.message, :red
+        end
       end
 
       @users_credentials[username.to_sym] = user_credentials
@@ -205,7 +242,9 @@ class AwsStudentAccounts::App < Thor
       write_fog_file(username, user_credentials)
       write_password_file(account_signin_url, user_login)
     rescue => e
-      say "#{e.class}: #{e.message}", :red
+      @io_semaphore.synchronize do
+        say "#{e.class}: #{e.message}", :red
+      end
     end
 
   end
@@ -215,11 +254,15 @@ class AwsStudentAccounts::App < Thor
     access_keys_reponse.body['AccessKeys'].each do |key|
       user_response = iam.delete_access_key(key['AccessKeyId'], 'UserName' => username)
     end
-    user_say username, "Deleted access keys", :yellow
+    @io_semaphore.synchronize do
+      user_say username, "Deleted access keys", :yellow
+    end
 
     begin
       iam.delete_login_profile(username)
-      user_say username, "Deleted user login profile", :yellow
+      @io_semaphore.synchronize do
+        user_say username, "Deleted user login profile", :yellow
+      end
     rescue Fog::AWS::IAM::NotFound
     end
 
@@ -227,10 +270,14 @@ class AwsStudentAccounts::App < Thor
     user_policies_reponse.body['PolicyNames'].each do |policy_name|
       iam.delete_user_policy(username, policy_name)
     end
-    user_say username, "Deleted user policies", :yellow
+    @io_semaphore.synchronize do
+      user_say username, "Deleted user policies", :yellow
+    end
 
     user_response = iam.delete_user(username)
-    user_say username, "Deleted user", :yellow
+    @io_semaphore.synchronize do
+      user_say username, "Deleted user", :yellow
+    end
   end
 
   def write_fog_file(username, user_credentials)
@@ -240,7 +287,9 @@ class AwsStudentAccounts::App < Thor
         username.to_sym => user_credentials
       }.to_yaml
     end
-    user_say username, "Created fog-api.yml", :green
+    @io_semaphore.synchronize do
+      user_say username, "Created fog-api.yml", :green
+    end
   end
 
   def write_password_file(account_signin_url, user_login)
@@ -255,7 +304,9 @@ class AwsStudentAccounts::App < Thor
 * Password: #{user_login[:password]}
       EOS
     end
-    user_say username, "Created fog-api.yml", :green
+    @io_semaphore.synchronize do
+      user_say username, "Created fog-api.yml", :green
+    end
 
   end
 end
