@@ -1,5 +1,6 @@
 require "thor"
 require "yaml"
+require "fog"
 
 class AwsStudentAccounts::App < Thor
   include Thor::Actions
@@ -13,6 +14,17 @@ class AwsStudentAccounts::App < Thor
   common_options
   def verify_credentials
     load_and_verify_options
+    @fog_credentials.each do |key, credentials|
+      say "#{key}: "
+      compute = Fog::Compute::AWS.new(credentials)
+      begin
+        server_count = compute.servers.size
+        say "OK ", :green
+        say "(#{server_count} instances)"
+      rescue => e
+        say e.message, :red
+      end
+    end
   end
 
   desc "create-students", "Create a student IAM account for all AWS accounts"
@@ -45,6 +57,8 @@ class AwsStudentAccounts::App < Thor
       say "File #{@fog_file} does not match a .fog format (Hash of Hashes)", :red
       exit 1
     end
+
+    # TODO: filter @fog_credentials by filter/ignore list
   end
 
 end
