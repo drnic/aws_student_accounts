@@ -16,11 +16,12 @@ class AwsStudentAccounts::App < Thor
     load_and_verify_options
     @fog_credentials.each do |key, credentials|
       say "#{key}: "
-      compute = Fog::Compute::AWS.new(credentials)
       begin
+        compute = Fog::Compute::AWS.new(credentials)
         server_count = compute.servers.size
+        vpc_count = compute.vpcs.size
         say "OK ", :green
-        say "(#{server_count} instances)"
+        say "(#{server_count} vm, #{vpc_count} vpcs)"
       rescue => e
         say e.message, :red
       end
