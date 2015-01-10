@@ -33,7 +33,9 @@ Usage
 aws_student_accounts verify-credentials -C path/to/fog.yml
 ```
 
-### Create a student IAM account for all AWS accounts in a list
+### Create student IAM access
+
+Create a student IAM account for all AWS accounts
 
 ```
 aws_student_accounts create-students -C path/to/fog.yml path/to/students
@@ -46,11 +48,15 @@ aws_student_accounts create-students -C path/to/fog.yml path/to/students
 
 ### Delete student IAM access
 
+Delete temporary student IAM accounts.
+
 ```
 aws_student_accounts delete-students -C path/to/fog.yml
 ```
 
 ### Cleans accounts
+
+Clean out all VMs, disk, elastic IPs, AMIs, VPCs from student accounts
 
 ```
 aws_student_accounts clean-accounts -C path/to/fog.yml
