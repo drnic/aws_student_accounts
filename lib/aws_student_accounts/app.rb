@@ -186,7 +186,12 @@ class AwsStudentAccounts::App < Thor
 
         delete_user(iam, username)
         user_response = iam.create_user(username)
+      rescue => e
+        @io_semaphore.synchronize do
+          user_say username, e.message, :red
+        end
       end
+
       @io_semaphore.synchronize do
         user_say username, "Created user #{username}", :green
       end
@@ -202,7 +207,7 @@ class AwsStudentAccounts::App < Thor
       password = generate_password
       iam.create_login_profile(username, password)
       @io_semaphore.synchronize do
-        user_say username, "Created login password"
+        user_say username, "Created login password", :green
       end
 
       arn = user_response.body['User']['Arn']
