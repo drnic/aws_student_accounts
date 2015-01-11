@@ -12,6 +12,8 @@ class AwsStudentAccounts::App < Thor
   def self.common_options
     method_option :fog_file, desc: "Path to YAML file of fog credentials",
                     type: :string, aliases: "-C", required: true
+    method_option :only, desc: "Restrict to comma-separated list of fog keys",
+                    type: :string, aliases: "-o"
   end
 
   desc "verify-credentials", "Verify AWS credentials"
@@ -138,6 +140,10 @@ class AwsStudentAccounts::App < Thor
       exit 1
     end
 
+    if options["only"]
+      only_specific_keys = options["only"].split(',')
+      @fog_credentials = fog_credentials.keep_if { |key, value| only_specific_keys.include?(key.to_s) }
+    end
     # TODO: filter @fog_credentials by filter/ignore list
   end
 

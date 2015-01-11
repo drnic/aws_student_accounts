@@ -78,7 +78,7 @@ aws_student_accounts clean-accounts -C path/to/fog.yml
 
 All commands will perform the account upon all accounts listed in the `-C fog.yml` file provided.
 
-You can filter to 1+ accounts with a comma separated list `-a student1,student2`.
+You can filter down to 1+ accounts with a comma separated list `--only student1,student2`.
 
 You can ignore 1+ accounts from the `-C` list with `-i student19,student20`.
 
