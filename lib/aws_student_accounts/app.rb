@@ -344,6 +344,24 @@ class AwsStudentAccounts::App < Thor
     @io_semaphore.synchronize do
       user_say account, "[#{aws_region}] Destroyed #{original_servers_count} instances"
     end
+
+    # TODO: need to delete dependencies first
+    # vpcs = compute.vpcs
+    # original_vpc_count = vpcs.size
+    # @io_semaphore.synchronize do
+    #   user_say account, "[#{aws_region}] Destroying #{original_vpc_count} VPCs"
+    # end
+    # Parallel.each(vpcs, in_threads: vpcs.size) do |vpc|
+    #   @io_semaphore.synchronize do
+    #     p vpc
+    #     user_say account, "[#{aws_region}] Destroying #{vpc.id}"
+    #   end
+    #   vpc.destroy
+    #   vpc.wait_for { state != "available" }
+    # end
+    # @io_semaphore.synchronize do
+    #   user_say account, "[#{aws_region}] Destroyed #{original_vpc_count} VPCs"
+    # end
   end
 
   def aws_regions
