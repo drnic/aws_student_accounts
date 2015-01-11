@@ -338,18 +338,39 @@ class AwsStudentAccounts::App < Thor
     # First, destroy instances
     servers = compute.servers
     original_servers_count = servers.size
-    @io_semaphore.synchronize do
-      user_say account, "[#{aws_region}] Destroying #{original_servers_count} instances"
-    end
-    Parallel.each(servers, in_threads: servers.size) do |server|
+    if original_servers_count > 0
       @io_semaphore.synchronize do
-        user_say account, "[#{aws_region}] Destroying #{server.id}"
+        user_say account, "[#{aws_region}] Destroying #{original_servers_count} instances"
       end
-      server.destroy
-      server.wait_for { state == "terminated" }
+      Parallel.each(servers, in_threads: servers.size) do |server|
+        @io_semaphore.synchronize do
+          user_say account, "[#{aws_region}] Destroying #{server.id}"
+        end
+        server.destroy
+        server.wait_for { state == "terminated" }
+      end
+      @io_semaphore.synchronize do
+        user_say account, "[#{aws_region}] Destroyed #{original_servers_count} instances"
+      end
+    else
+      user_say account, "[#{aws_region}] No instances to destroy"
     end
-    @io_semaphore.synchronize do
-      user_say account, "[#{aws_region}] Destroyed #{original_servers_count} instances"
+
+    # Destroy elastic IPs
+    ips = compute.addresses
+    ip_count = ips.size
+    if ip_count > 0
+      @io_semaphore.synchronize do
+        user_say account, "[#{aws_region}] Destroying #{ip_count} IPs"
+      end
+      Parallel.each(ips, in_threads: ip_count) do |ip|
+        @io_semaphore.synchronize do
+          user_say account, "[#{aws_region}] Destroying #{ip.public_ip}"
+        end
+        ip.destroy
+      end
+    else
+      user_say account, "[#{aws_region}] No IP addresses to destroy"
     end
 
     # TODO: need to delete dependencies first
