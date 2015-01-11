@@ -182,6 +182,11 @@ class AwsStudentAccounts::App < Thor
     say *args
   end
 
+  def user_say_region(username, region, *args)
+    say "[#{username}] [#{region}] "
+    say *args
+  end
+
   def create_student_user(account, admin_credentials, signin_urls)
     unless account_signin_url = signin_urls[account]
       @io_semaphore.synchronize do
@@ -340,20 +345,22 @@ class AwsStudentAccounts::App < Thor
     original_servers_count = servers.size
     if original_servers_count > 0
       @io_semaphore.synchronize do
-        user_say account, "[#{aws_region}] Destroying #{original_servers_count} instances"
+        user_say_region account, aws_region, "Destroying #{original_servers_count} instances"
       end
       Parallel.each(servers, in_threads: servers.size) do |server|
         @io_semaphore.synchronize do
-          user_say account, "[#{aws_region}] Destroying #{server.id}"
+          user_say_region account, aws_region, "Destroying #{server.id}"
         end
         server.destroy
         server.wait_for { state == "terminated" }
       end
       @io_semaphore.synchronize do
-        user_say account, "[#{aws_region}] Destroyed #{original_servers_count} instances"
+        user_say_region account, aws_region, "Destroyed #{original_servers_count} instances"
       end
     else
-      user_say account, "[#{aws_region}] No instances to destroy"
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "No instances to destroy"
+      end
     end
 
     # Destroy elastic IPs
@@ -361,34 +368,142 @@ class AwsStudentAccounts::App < Thor
     ip_count = ips.size
     if ip_count > 0
       @io_semaphore.synchronize do
-        user_say account, "[#{aws_region}] Destroying #{ip_count} IPs"
+        user_say_region account, aws_region, "Destroying #{ip_count} IPs"
       end
       Parallel.each(ips, in_threads: ip_count) do |ip|
         @io_semaphore.synchronize do
-          user_say account, "[#{aws_region}] Destroying #{ip.public_ip}"
+          user_say_region account, aws_region, "Destroying #{ip.public_ip}"
         end
         ip.destroy
       end
     else
-      user_say account, "[#{aws_region}] No IP addresses to destroy"
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "No IP addresses to destroy"
+      end
     end
 
-    # TODO: need to delete dependencies first
+    # Destroy elastic IPs
+    ips = compute.addresses
+    ip_count = ips.size
+    if ip_count > 0
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "Destroying #{ip_count} IPs"
+      end
+      Parallel.each(ips, in_threads: ip_count) do |ip|
+        @io_semaphore.synchronize do
+          user_say_region account, aws_region, "Destroying #{ip.public_ip}"
+        end
+        ip.destroy
+      end
+    else
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "No IP addresses to destroy"
+      end
+    end
+
+    # Destroy VPC security groups
+    sg = compute.security_groups.select {|v| v.vpc_id}
+    if sg.size > 0
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "Destroying #{sg.size} VPC security groups"
+      end
+      Parallel.each(sg, in_threads: sg.size) do |sg|
+        @io_semaphore.synchronize do
+          user_say_region account, aws_region, "Destroying #{sg.name}"
+        end
+        begin
+          sg.destroy
+        rescue Fog::Compute::AWS::Error
+          # quietly ignore SGs we can't delete anyway
+        rescue => e
+          user_say_region account, aws_region, e.message, :red
+        end
+      end
+    else
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "No VPC security groups to destroy"
+      end
+    end
+
+    # Destroy subnets
+    subnets = compute.subnets
+    subnet_count = subnets.size
+    if subnet_count > 0
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "Destroying #{subnet_count} subnets"
+      end
+      Parallel.each(subnets, in_threads: subnet_count) do |subnet|
+        @io_semaphore.synchronize do
+          user_say_region account, aws_region, "Destroying #{subnet.subnet_id} (#{subnet.cidr_block})"
+        end
+        subnet.destroy
+      end
+    else
+      @io_semaphore.synchronize do
+        user_say_region account, aws_region, "No subnets to destroy"
+      end
+    end
+
+    # TODO: detach Internet Gtw from VPC
+    # TODO: delete IG
+
+
+    # TODO: figure out how to delete route tables; perhaps detact them first?
+    # rts = compute.route_tables
+    # @io_semaphore.synchronize do
+    #   user_say_region account, aws_region, "Destroying #{rts.size} Route Tables"
+    # end
+    # retry_rts = ThreadSafe::Array.new
+    # Parallel.each(rts, in_threads: rts.size) do |rt|
+    #   @io_semaphore.synchronize do
+    #     user_say_region account, aws_region, "Destroying #{rt.id}"
+    #   end
+    #   begin
+    #     rt.routes.each do |route|
+    #       begin
+    #         compute.delete_route(rt.id, route["destinationCidrBlock"])
+    #       rescue InvalidParameterValue
+    #         # quietly ignore local routes that are implicitly deleted when we destroy rt
+    #       end
+    #     end
+    #     rt.destroy
+    #   rescue
+    #     retry_rts << rt
+    #   end
+    # end
+    #
+    # Parallel.each(retry_rts, in_threads: retry_rts.size) do |rt|
+    #   @io_semaphore.synchronize do
+    #     user_say_region account, aws_region, "Trying again to destroy #{rt.id}"
+    #   end
+    #   begin
+    #     rt.routes.each do |route|
+    #       begin
+    #         compute.delete_route(rt.id, route["destinationCidrBlock"])
+    #       rescue InvalidParameterValue
+    #         # quietly ignore local routes that are implicitly deleted when we destroy rt
+    #       end
+    #     end
+    #     rt.destroy
+    #   rescue => e
+    #     user_say_region account, aws_region, e.message, :red
+    #   end
+    # end
+    #
     # vpcs = compute.vpcs
     # original_vpc_count = vpcs.size
     # @io_semaphore.synchronize do
-    #   user_say account, "[#{aws_region}] Destroying #{original_vpc_count} VPCs"
+    #   user_say_region account, aws_region, "Destroying #{original_vpc_count} VPCs"
     # end
     # Parallel.each(vpcs, in_threads: vpcs.size) do |vpc|
     #   @io_semaphore.synchronize do
-    #     p vpc
-    #     user_say account, "[#{aws_region}] Destroying #{vpc.id}"
+    #     user_say_region account, aws_region, "Destroying #{vpc.id} (#{vpc.cidr_block})"
     #   end
-    #   vpc.destroy
-    #   vpc.wait_for { state != "available" }
-    # end
-    # @io_semaphore.synchronize do
-    #   user_say account, "[#{aws_region}] Destroyed #{original_vpc_count} VPCs"
+    #   begin
+    #     vpc.destroy
+    #   rescue => e
+    #     user_say_region account, aws_region, e.message, :red
+    #   end
     # end
   end
 
