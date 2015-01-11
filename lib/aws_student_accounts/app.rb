@@ -373,7 +373,8 @@ class AwsStudentAccounts::App < Thor
     region_server_summary = ThreadSafe::Hash.new
     Parallel.each(aws_regions, in_threads: aws_regions.size) do |aws_region|
       compute = Fog::Compute::AWS.new(credentials.merge(region: aws_region))
-      region_server_summary[aws_region] = compute.servers.size
+      count = compute.servers.select {|s| s.state != "terminated" }.size
+      region_server_summary[aws_region] = count
     end
     summary = {}
     summary[:servers] = region_server_summary.inject(0) do |count, pair|
