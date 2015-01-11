@@ -21,13 +21,12 @@ class AwsStudentAccounts::App < Thor
     @io_semaphore = Mutex.new
     Parallel.each(fog_credentials, in_threads: 10) do |username, credentials|
       begin
-        compute = Fog::Compute::AWS.new(credentials)
-        server_count = compute.servers.size
-        vpc_count = compute.vpcs.size
+        account = account_summary(credentials)
+        server_count = account[:servers]
         @io_semaphore.synchronize do
           say "#{username}: "
           say "OK ", :green
-          say "(#{server_count} vm, #{vpc_count} vpcs)"
+          say "(#{server_count} vm)"
         end
       rescue => e
         @io_semaphore.synchronize do
@@ -313,5 +312,24 @@ class AwsStudentAccounts::App < Thor
       user_say username, "Created fog-api.yml", :green
     end
 
+  end
+
+  def aws_regions
+    %w[us-east-1 us-west-1 us-west-2]
+  end
+
+  # returns { servers: num-of-servers-across-regions }
+  def account_summary(credentials)
+    region_server_summary = ThreadSafe::Hash.new
+    Parallel.each(aws_regions, in_threads: aws_regions.size) do |aws_region|
+      compute = Fog::Compute::AWS.new(credentials.merge(region: aws_region))
+      region_server_summary[aws_region] = compute.servers.size
+    end
+    summary = {}
+    summary[:servers] = region_server_summary.inject(0) do |count, pair|
+      region, servers = pair
+      count + servers
+    end
+    summary
   end
 end
