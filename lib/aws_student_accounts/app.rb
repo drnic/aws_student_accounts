@@ -109,6 +109,19 @@ class AwsStudentAccounts::App < Thor
   common_options
   def clean_accounts
     load_and_verify_options
+    @io_semaphore = Mutex.new
+
+    # Double check before unleashing devastation
+    unless yes?("Do you really want to terminate all instances, disk, IPs, networks etc?", :red)
+      say "Phew!", :green
+      exit 1
+    end
+    Parallel.each(fog_credentials, in_threads: fog_credentials.size) do |account, credentials|
+      Parallel.each(aws_regions, in_threads: aws_regions.size) do |aws_region|
+        compute = Fog::Compute::AWS.new(credentials.merge(region: aws_region))
+        destroy_everything(account, aws_region, compute)
+      end
+    end
   end
 
   private
@@ -312,6 +325,25 @@ class AwsStudentAccounts::App < Thor
       user_say username, "Created fog-api.yml", :green
     end
 
+  end
+
+  def destroy_everything(account, aws_region, compute)
+    # First, destroy instances
+    servers = compute.servers
+    original_servers_count = servers.size
+    @io_semaphore.synchronize do
+      user_say account, "[#{aws_region}] Destroying #{original_servers_count} instances"
+    end
+    Parallel.each(servers, in_threads: servers.size) do |server|
+      @io_semaphore.synchronize do
+        user_say account, "[#{aws_region}] Destroying #{server.id}"
+      end
+      server.destroy
+      server.wait_for { state == "terminated" }
+    end
+    @io_semaphore.synchronize do
+      user_say account, "[#{aws_region}] Destroyed #{original_servers_count} instances"
+    end
   end
 
   def aws_regions
