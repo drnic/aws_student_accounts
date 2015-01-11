@@ -117,7 +117,8 @@ class AwsStudentAccounts::App < Thor
       exit 1
     end
     Parallel.each(fog_credentials, in_threads: fog_credentials.size) do |account, credentials|
-      Parallel.each(aws_regions, in_threads: aws_regions.size) do |aws_region|
+      all_regions = aws_regions(false)
+      Parallel.each(all_regions, in_threads: all_regions.size) do |aws_region|
         compute = Fog::Compute::AWS.new(credentials.merge(region: aws_region))
         destroy_everything(account, aws_region, compute)
       end
@@ -364,8 +365,14 @@ class AwsStudentAccounts::App < Thor
     # end
   end
 
-  def aws_regions
-    %w[us-east-1 us-west-1 us-west-2]
+  def aws_regions(common_only=true)
+    if common_only
+      ["us-east-1", "us-west-2"]
+    else
+      ["eu-central-1", "sa-east-1", "ap-northeast-1",
+      "eu-west-1", "us-east-1", "us-west-1", "us-west-2",
+      "ap-southeast-2", "ap-southeast-1"]
+    end
   end
 
   # returns { servers: num-of-servers-across-regions }
