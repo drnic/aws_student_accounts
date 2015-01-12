@@ -239,7 +239,7 @@ class AwsStudentAccounts::App < Thor
         aws_access_key_id: access_key_id,
         aws_secret_access_key: secret_access_key
       }
-      retries = 3
+      retries = 5
       signin_url = nil
       while retries > 0
         begin
@@ -252,6 +252,7 @@ class AwsStudentAccounts::App < Thor
           end
 
           signin_url = account_signin_url(user_compute)
+          break
         rescue => e
           retries = retries - 1
           if retries <= 0
