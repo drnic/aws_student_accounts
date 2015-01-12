@@ -252,22 +252,23 @@ class AwsStudentAccounts::App < Thor
 
         signin_url = account_signin_url(user_compute)
 
-        @users_credentials[username.to_sym] = user_credentials
-        user_login = {
-          password: password,
-          username: username.to_s,
-          url: signin_url
-        }
-        @users_passwords[username] = user_login
-
-        write_fog_file(username, user_credentials)
-        write_password_file(signin_url, user_login)
       rescue => e
         @io_semaphore.synchronize do
           user_say username, "Verify credentials: "
           say e.message, :red
         end
       end
+
+      @users_credentials[username.to_sym] = user_credentials
+      user_login = {
+        password: password,
+        username: username.to_s,
+        url: signin_url
+      }
+      @users_passwords[username] = user_login
+
+      write_fog_file(username, user_credentials)
+      write_password_file(signin_url, user_login)
     rescue => e
       @io_semaphore.synchronize do
         say "#{e.class}: #{e.message}", :red
