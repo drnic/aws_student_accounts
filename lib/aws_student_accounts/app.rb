@@ -242,6 +242,7 @@ class AwsStudentAccounts::App < Thor
       begin
         user_compute = Fog::Compute::AWS.new(user_credentials)
         p user_compute
+        p user_credentials
         server_count = user_compute.servers.size
         @io_semaphore.synchronize do
           user_say username, "Verify credentials: "
