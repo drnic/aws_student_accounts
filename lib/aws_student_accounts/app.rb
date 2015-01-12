@@ -313,7 +313,7 @@ class AwsStudentAccounts::App < Thor
     FileUtils.mkdir_p(username.to_s)
     File.open(File.join(username.to_s, "fog-api.yml"), "w") do |f|
       f << {
-        username.to_sym => user_credentials
+        default: user_credentials
       }.to_yaml
     end
     @io_semaphore.synchronize do
