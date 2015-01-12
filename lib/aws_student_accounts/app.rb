@@ -243,7 +243,6 @@ class AwsStudentAccounts::App < Thor
       signin_url = nil
       while retries > 0
         begin
-          sleep 1
           user_compute = Fog::Compute::AWS.new(user_credentials)
           p user_compute
           p user_credentials
@@ -257,7 +256,7 @@ class AwsStudentAccounts::App < Thor
           signin_url = account_signin_url(user_compute)
 
         rescue => e
-          retries =- 1
+          retries -= 1
           if retries <= 0
             @io_semaphore.synchronize do
               user_say username, "Verify credentials: "
