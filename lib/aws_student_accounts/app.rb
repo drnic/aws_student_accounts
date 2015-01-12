@@ -243,6 +243,7 @@ class AwsStudentAccounts::App < Thor
       signin_url = nil
       while retries > 0
         begin
+          sleep 1
           user_compute = Fog::Compute::AWS.new(user_credentials)
           p user_compute
           p user_credentials
