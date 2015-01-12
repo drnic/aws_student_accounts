@@ -54,26 +54,31 @@ class AwsStudentAccounts::App < Thor
         create_student_user(username, credentials)
       end
 
-      File.open("students-fog-api.yml", "w") do |f|
-        f << @users_credentials.to_yaml
-      end
-      say "Stored all user API credentials: #{File.expand_path('students-fog-api.yml')}"
-
-      File.open("students-console-passwords.md", "w") do |f|
-        f << "# Student AWS logins\n\n"
-        fog_credentials.each do |username, credentials|
-          if user_login = @users_passwords[username]
-            f << <<-EOS
-## #{user_login[:username]}
-
-* Sign-in URL: #{user_login[:url]}
-* Username: #{user_login[:username]}
-* Password: #{user_login[:password]}
-
-            EOS
-          end
+      # don't rewrite the shared file if only re-creating credentials for one person
+      # FIXME: update these files rather than rewriting?
+      # TODO: make backups of shared files before rewriting
+      unless options[:only]
+        File.open("students-fog-api.yml", "w") do |f|
+          f << @users_credentials.to_yaml
         end
-        say "Stored all user passwords: #{File.expand_path('students-console-passwords.md')}"
+        say "Stored all user API credentials: #{File.expand_path('students-fog-api.yml')}"
+
+        File.open("students-console-passwords.md", "w") do |f|
+          f << "# Student AWS logins\n\n"
+          fog_credentials.each do |username, credentials|
+            if user_login = @users_passwords[username]
+              f << <<-EOS
+  ## #{user_login[:username]}
+
+  * Sign-in URL: #{user_login[:url]}
+  * Username: #{user_login[:username]}
+  * Password: #{user_login[:password]}
+
+              EOS
+            end
+          end
+          say "Stored all user passwords: #{File.expand_path('students-console-passwords.md')}"
+        end
       end
     end
   end
@@ -236,6 +241,7 @@ class AwsStudentAccounts::App < Thor
       }
       begin
         user_compute = Fog::Compute::AWS.new(user_credentials)
+        p user_compute
         server_count = user_compute.servers.size
         @io_semaphore.synchronize do
           user_say username, "Verify credentials: "
