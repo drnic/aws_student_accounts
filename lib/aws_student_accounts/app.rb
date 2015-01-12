@@ -41,13 +41,9 @@ class AwsStudentAccounts::App < Thor
 
   desc "create-students", "Create a student IAM account for all AWS accounts"
   common_options
-  method_option :signin_urls, desc: "File mapping usernames to account signin URLs",
-    type: :string, aliases: "-s", required: true
   def create_students(path_to_student_folders="students")
     load_and_verify_options
     @io_semaphore = Mutex.new
-
-    signin_urls = YAML.load_file(options[:signin_urls])
 
     @users_credentials = ThreadSafe::Hash.new
     @users_passwords = ThreadSafe::Hash.new
@@ -55,7 +51,7 @@ class AwsStudentAccounts::App < Thor
     FileUtils.mkdir_p(path_to_student_folders)
     FileUtils.chdir(path_to_student_folders) do
       Parallel.each(fog_credentials, in_threads: fog_credentials.size) do |username, credentials|
-        create_student_user(username, credentials, signin_urls)
+        create_student_user(username, credentials)
       end
 
       File.open("students-fog-api.yml", "w") do |f|
@@ -187,14 +183,7 @@ class AwsStudentAccounts::App < Thor
     say *args
   end
 
-  def create_student_user(account, admin_credentials, signin_urls)
-    unless account_signin_url = signin_urls[account]
-      @io_semaphore.synchronize do
-        user_say account, "Admin account #{account} missing from #{options[:signin_urls]}, skipping", :red
-      end
-      return
-    end
-
+  def create_student_user(account, admin_credentials)
     begin
       iam = Fog::AWS::IAM.new(admin_credentials)
 
@@ -253,23 +242,25 @@ class AwsStudentAccounts::App < Thor
           say "OK ", :green
           say "(#{server_count} vms)"
         end
+
+        signin_url = account_signin_url(user_compute)
+
+        @users_credentials[username.to_sym] = user_credentials
+        user_login = {
+          password: password,
+          username: username.to_s,
+          url: signin_url
+        }
+        @users_passwords[username] = user_login
+
+        write_fog_file(username, user_credentials)
+        write_password_file(signin_url, user_login)
       rescue => e
         @io_semaphore.synchronize do
           user_say username, "Verify credentials: "
           say e.message, :red
         end
       end
-
-      @users_credentials[username.to_sym] = user_credentials
-      user_login = {
-        password: password,
-        username: username.to_s,
-        url: account_signin_url
-      }
-      @users_passwords[username] = user_login
-
-      write_fog_file(username, user_credentials)
-      write_password_file(account_signin_url, user_login)
     rescue => e
       @io_semaphore.synchronize do
         say "#{e.class}: #{e.message}", :red
@@ -336,7 +327,12 @@ class AwsStudentAccounts::App < Thor
     @io_semaphore.synchronize do
       user_say username, "Created console-passwords.md", :green
     end
+  end
 
+  def account_signin_url(aws_compute)
+    any_sg = aws_compute.security_groups.first
+    account_num = any_sg.owner_id
+    "https://#{account_num}.signin.aws.amazon.com/console"
   end
 
   def destroy_everything(account, aws_region, compute)
