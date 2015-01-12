@@ -334,7 +334,7 @@ class AwsStudentAccounts::App < Thor
       EOS
     end
     @io_semaphore.synchronize do
-      user_say username, "Created fog-api.yml", :green
+      user_say username, "Created console-passwords.md", :green
     end
 
   end
