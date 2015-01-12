@@ -239,23 +239,37 @@ class AwsStudentAccounts::App < Thor
         aws_access_key_id: access_key_id,
         aws_secret_access_key: secret_access_key
       }
-      begin
-        user_compute = Fog::Compute::AWS.new(user_credentials)
-        p user_compute
-        p user_credentials
-        server_count = user_compute.servers.size
-        @io_semaphore.synchronize do
-          user_say username, "Verify credentials: "
-          say "OK ", :green
-          say "(#{server_count} vms)"
-        end
+      retries = 3
+      signin_url = nil
+      while retries > 0
+        begin
+          user_compute = Fog::Compute::AWS.new(user_credentials)
+          p user_compute
+          p user_credentials
+          server_count = user_compute.servers.size
+          @io_semaphore.synchronize do
+            user_say username, "Verify credentials: "
+            say "OK ", :green
+            say "(#{server_count} vms)"
+          end
 
-        signin_url = account_signin_url(user_compute)
+          signin_url = account_signin_url(user_compute)
 
-      rescue => e
-        @io_semaphore.synchronize do
-          user_say username, "Verify credentials: "
-          say e.message, :red
+        rescue => e
+          retries =- 1
+          if retries <= 0
+            @io_semaphore.synchronize do
+              user_say username, "Verify credentials: "
+              say e.message, :red
+            end
+          else
+            @io_semaphore.synchronize do
+              user_say username, "Verify credentials: "
+              say "failed ", :yellow
+              say "retrying..."
+            end
+            sleep 1
+          end
         end
       end
 
